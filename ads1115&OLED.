@@ -1,0 +1,90 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_ADS1015.h> // Sử dụng thư viện Adafruit ADS1X15
+#include <U8g2lib.h>
+
+// Khởi tạo ADS1115 (Địa chỉ mặc định là 0x48)
+Adafruit_ADS1115 ads;
+
+// Khởi tạo màn hình OLED SH1106 1.3 inch qua Hardware I2C
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n--- BẮT ĐẦU KIỂM TRA PHẦN CỨNG I2C ---");
+
+  // Khởi tạo bus I2C với chân SDA=21, SCL=22 của ESP32
+  Wire.begin(21, 22); 
+
+  // 1. KHỞI TẠO MÀN HÌNH OLED
+  u8g2.begin();
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x12_tf);
+  u8g2.drawStr(0, 15, "I2C Scanner & Test...");
+  u8g2.sendBuffer();
+
+  // 2. KHỞI TẠO ADS1115
+  Serial.println("Đang kết nối ADS1115...");
+  if (!ads.begin(0x48)) {
+    Serial.println("LỖI: Không tìm thấy ADS1115! Vui lòng kiểm tra dây nguồn/tín hiệu.");
+    
+    // Hiển thị lỗi lên màn hình OLED
+    u8g2.clearBuffer();
+    u8g2.drawStr(0, 20, "ERROR: NO ADS1115");
+    u8g2.drawStr(0, 40, "Check I2C Address!");
+    u8g2.sendBuffer();
+    
+    while (1); // Dừng hệ thống nếu lỗi ADS
+  }
+  
+  // Cấu hình Gain (Độ lợi) giống hệt code BMS chính của bạn
+  ads.setGain(GAIN_TWOTHIRDS); 
+  Serial.println("ADS1115 kết nối THÀNH CÔNG!");
+  
+  u8g2.clearBuffer();
+  u8g2.drawStr(0, 20, "ADS1115: OK");
+  u8g2.drawStr(0, 40, "OLED SH1106: OK");
+  u8g2.sendBuffer();
+  delay(1500);
+}
+
+void loop() {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x12_tf);
+  u8g2.drawStr(0, 12, "--- ADS1115 RAW ---");
+
+  // Đọc giá trị thô từ 4 kênh (A0 đến A3) của ADS1115
+  int16_t adc0 = ads.readADC_SingleEnded(0);
+  int16_t adc1 = ads.readADC_SingleEnded(1);
+  int16_t adc2 = ads.readADC_SingleEnded(2);
+  int16_t adc3 = ads.readADC_SingleEnded(3);
+
+  // Chuyển đổi sang giá trị điện áp Volt thực tế (với Gain = GAIN_TWOTHIRDS, 1 LSB = 0.1875mV)
+  float v0 = adc0 * 0.1875 / 1000.0;
+  float v1 = adc1 * 0.1875 / 1000.0;
+  float v2 = adc2 * 0.1875 / 1000.0;
+  float v3 = adc3 * 0.1875 / 1000.0;
+
+  // In dữ liệu ra Serial Monitor để debug máy tính
+  Serial.printf("A0: %d (%.3fV) | A1: %d (%.3fV) | A2: %d (%.3fV) | A3: %d (%.3fV)\n", 
+                adc0, v0, adc1, v1, adc2, v2, adc3, v3);
+
+  // Hiển thị trực quan giá trị điện áp (Volt) của 4 kênh lên màn hình OLED
+  char buf[30];
+  
+  snprintf(buf, sizeof(buf), "A0 (C1): %.3f V", v0);
+  u8g2.drawStr(0, 26, buf);
+  
+  snprintf(buf, sizeof(buf), "A1 (C2): %.3f V", v1);
+  u8g2.drawStr(0, 38, buf);
+  
+  snprintf(buf, sizeof(buf), "A2 (C3): %.3f V", v2);
+  u8g2.drawStr(0, 50, buf);
+  
+  snprintf(buf, sizeof(buf), "A3 (Shunt): %.3f V", v3);
+  u8g2.drawStr(0, 62, buf);
+
+  u8g2.sendBuffer(); // Đẩy dữ liệu lên màn hình
+  delay(300);        // Cập nhật sau mỗi 300ms
+}
